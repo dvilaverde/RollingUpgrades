@@ -13,15 +13,4 @@ public class NumberPrinter implements Serializable {
     return number * 2;
   }
 
-
-  public static void main(String[] args) {
-    try (FileInputStream fis = new FileInputStream("./TEST0.bin");) {
-      ObjectInputStream o = new ObjectInputStream(fis);
-      Object ob = o.readObject();
-      System.out.println(ob.getClass());
-    }
-    catch (Exception e) {
-      e.printStackTrace();
-    }
-  }
 }

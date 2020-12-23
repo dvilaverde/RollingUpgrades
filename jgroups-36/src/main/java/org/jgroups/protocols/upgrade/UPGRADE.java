@@ -20,6 +20,7 @@ import org.jgroups.upgrade_server.ViewId;
 import org.jgroups.util.UUID;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -275,7 +276,7 @@ public class UPGRADE extends Protocol {
         List<org.jgroups.upgrade_server.Address> pbuf_mbrs=v.getMemberList();
         org.jgroups.ViewId jg_vid=new org.jgroups.ViewId(protobufAddressToJGroupsAddress(pbuf_vid.getCreator()),
                                                          pbuf_vid.getId());
-        List<Address> members=new ArrayList<>();
+        Collection<Address> members=new ArrayList<>();
         pbuf_mbrs.stream().map(UPGRADE::protobufAddressToJGroupsAddress).forEach(members::add);
         return new org.jgroups.View(jg_vid, members);
     }

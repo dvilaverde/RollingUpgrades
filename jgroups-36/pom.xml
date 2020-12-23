@@ -15,7 +15,7 @@
    <description>Protocol for JGroups 3.6</description>
 
     <properties>
-        <version.jgroups>3.6.15.Final</version.jgroups>
+        <version.jgroups>3.6.20.Final</version.jgroups>
     </properties>
 
    <dependencies>
