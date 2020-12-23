@@ -58,7 +58,6 @@ public class UPGRADE extends Protocol {
 
     protected static final short                        REQ_ID=ClassConfigurator.getProtocolId(RequestCorrelator.class);
 
-
     @ManagedOperation(description="Enable forwarding and receiving of messages to/from the UpgradeServer")
     public synchronized void activate() {
         if(!active) {
@@ -137,8 +136,6 @@ public class UPGRADE extends Protocol {
         return null;
     }
 
-
-
     protected synchronized void connect(String cluster) {
         send_stream=asyncStub.connect(new StreamObserver<Response>() {
             public void onNext(Response rsp) {
@@ -166,8 +163,6 @@ public class UPGRADE extends Protocol {
         Request req=Request.newBuilder().setJoinReq(join_req).build();
         send_stream.onNext(req);
     }
-
-
 
     protected synchronized void disconnect() {
         if(send_stream != null) {
@@ -214,7 +209,11 @@ public class UPGRADE extends Protocol {
         if(pbuf_addr == null)
             return null;
         org.jgroups.upgrade_server.UUID pbuf_uuid=pbuf_addr.hasUuid()? pbuf_addr.getUuid() : null;
-        return pbuf_uuid == null? null : new UUID(pbuf_uuid.getMostSig(), pbuf_uuid.getLeastSig());
+        UUID uuid = pbuf_uuid == null? null : new UUID(pbuf_uuid.getMostSig(), pbuf_uuid.getLeastSig());
+        if (uuid != null) {
+            NameCache.add(uuid, pbuf_addr.getName());
+        }
+        return uuid;
     }
 
     protected static org.jgroups.upgrade_server.Message jgroupsMessageToProtobufMessage(String cluster, Message jgroups_msg) {

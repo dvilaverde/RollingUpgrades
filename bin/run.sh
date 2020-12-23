@@ -12,5 +12,5 @@ JGROUPS_VERSION=`cd $RELAY_DIR && mvn exec:java -Dexec.mainClass=org.jgroups.Ver
 
 echo "Running $2 in $1 ($JGROUPS_VERSION)"
 
-cd $RELAY_DIR && mvn $SYSPROPS exec:java -Dexec.mainClass=$2 \
+cd $RELAY_DIR && mvn $SYSPROPS exec:java -Djava.net.preferIPv4Stack=true -Dexec.mainClass=$2 \
  -Dexec.args="-props config.xml"

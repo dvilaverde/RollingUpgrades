@@ -46,9 +46,6 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         };
     }
 
-
-
-
     @Override
     public void leave(LeaveRequest req, StreamObserver<Void> responseObserver) {
         final String  cluster=req.getClusterName();
@@ -115,6 +112,12 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         final String  cluster=join_req.getClusterName();
         final Address joiner=join_req.getAddress();
 
+        System.out.printf("Join request for cluster %s @ address: %s, uuid: %s",
+                cluster,
+                joiner.getName(),
+                joiner.getUuid().toString()
+        );
+
         SynchronizedMap m=members.computeIfAbsent(cluster, k -> new SynchronizedMap(new LinkedHashMap()));
         Map<Address,StreamObserver<Response>> map=m.getMap();
         Lock lock=m.getLock();
@@ -132,6 +135,13 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         final String  cluster=leave_req.getClusterName();
         boolean       removed=false;
         Address       leaver=leave_req.getLeaver();
+
+
+        System.out.printf("Leave request for cluster %s @ address: %s, uuid: %s",
+                cluster,
+                leaver.getName(),
+                leaver.getUuid().toString()
+        );
 
         if(leaver == null)
             return;

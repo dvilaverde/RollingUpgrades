@@ -6,11 +6,14 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
 import org.jgroups.Address;
 import org.jgroups.Event;
+import org.jgroups.Header;
 import org.jgroups.Message;
 import org.jgroups.annotations.MBean;
 import org.jgroups.annotations.ManagedAttribute;
 import org.jgroups.annotations.ManagedOperation;
 import org.jgroups.annotations.Property;
+import org.jgroups.blocks.RequestCorrelator;
+import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.upgrade_server.*;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.UUID;
@@ -53,6 +56,7 @@ public class UPGRADE extends Protocol {
     protected UpgradeServiceGrpc.UpgradeServiceStub     asyncStub;
     protected StreamObserver<Request>                   send_stream; // for sending of messages and join requests
 
+    protected static final short                        REQ_ID= ClassConfigurator.getProtocolId(RequestCorrelator.class);
 
     @ManagedOperation(description="Enable forwarding and receiving of messages to/from the UpgradeServer")
     public synchronized void activate() {
@@ -73,7 +77,9 @@ public class UPGRADE extends Protocol {
 
     public void start() throws Exception {
         super.start();
-        channel=ManagedChannelBuilder.forAddress(server_address, server_port).usePlaintext().build();
+        channel=ManagedChannelBuilder.forAddress(server_address, server_port)
+                .usePlaintext()
+                .build();
         asyncStub=UpgradeServiceGrpc.newStub(channel);
     }
 
@@ -91,6 +97,8 @@ public class UPGRADE extends Protocol {
                 // else send to UpgradeServer
                 if(send_stream != null) {
                     Message msg=(Message)evt.getArg();
+                    if(msg.getSrc() == null)
+                        msg.setSrc(local_addr);
                     Request req=Request.newBuilder().setMessage(jgroupsMessageToProtobufMessage(cluster, msg)).build();
                     send_stream.onNext(req);
                 }
@@ -126,8 +134,6 @@ public class UPGRADE extends Protocol {
         return up_prot.up(evt);
     }
 
-
-
     protected synchronized void connect(String cluster) {
         send_stream=asyncStub.connect(new StreamObserver<Response>() {
             public void onNext(Response rsp) {
@@ -156,8 +162,6 @@ public class UPGRADE extends Protocol {
         send_stream.onNext(req);
     }
 
-
-
     protected synchronized void disconnect() {
         if(send_stream != null) {
             if(local_addr != null && cluster != null) {
@@ -181,7 +185,7 @@ public class UPGRADE extends Protocol {
 
     protected void handleMessage(org.jgroups.upgrade_server.Message m) {
         // System.out.printf("received message %s\n", print(m));
-        Message msg=protobufMessageToJGroupsMessage(m);
+        Message msg = protobufMessageToJGroupsMessage(m);
         up_prot.up(new Event(Event.MSG, msg));
     }
 
@@ -203,7 +207,12 @@ public class UPGRADE extends Protocol {
         if(pbuf_addr == null)
             return null;
         org.jgroups.upgrade_server.UUID pbuf_uuid=pbuf_addr.hasUuid()? pbuf_addr.getUuid() : null;
-        return pbuf_uuid == null? null : new UUID(pbuf_uuid.getMostSig(), pbuf_uuid.getLeastSig());
+        UUID uuid = pbuf_uuid == null? null : new UUID(pbuf_uuid.getMostSig(), pbuf_uuid.getLeastSig());
+        if (uuid != null)
+        {
+            UUID.add(uuid, pbuf_addr.getName());
+        }
+        return uuid;
     }
 
     protected static org.jgroups.upgrade_server.Message jgroupsMessageToProtobufMessage(String cluster, Message jgroups_msg) {
@@ -211,6 +220,8 @@ public class UPGRADE extends Protocol {
             return null;
         Address destination=jgroups_msg.getDest(), sender=jgroups_msg.getSrc();
         byte[] payload=jgroups_msg.getBuffer();
+
+        Header hdr = jgroups_msg.getHeader(REQ_ID);
 
         org.jgroups.upgrade_server.Message.Builder msg_builder=org.jgroups.upgrade_server.Message.newBuilder()
           .setClusterName(cluster);
@@ -220,6 +231,10 @@ public class UPGRADE extends Protocol {
             msg_builder.setSender(jgroupsAddressToProtobufAddress(sender));
         if(payload != null)
             msg_builder.setPayload(ByteString.copyFrom(payload));
+        if(hdr != null) {
+            RpcHeader pbuf_hdr=jgroupsReqHeaderToProtobufRpcHeader((RequestCorrelator.Header)  hdr);
+            msg_builder.setRpcHeader(pbuf_hdr);
+        }
         return msg_builder.build();
     }
 
@@ -232,6 +247,10 @@ public class UPGRADE extends Protocol {
         ByteString payload=msg.getPayload();
         if(!payload.isEmpty())
             jgroups_mgs.setBuffer(payload.toByteArray());
+        if(msg.hasRpcHeader()) {
+            RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
+            jgroups_mgs.putHeader(REQ_ID, hdr);
+        }
         return jgroups_mgs;
     }
 
@@ -243,6 +262,17 @@ public class UPGRADE extends Protocol {
         List<Address> members=new ArrayList<>();
         pbuf_mbrs.stream().map(UPGRADE::protobufAddressToJGroupsAddress).forEach(members::add);
         return new org.jgroups.View(jg_vid, members);
+    }
+
+    protected static RpcHeader jgroupsReqHeaderToProtobufRpcHeader(RequestCorrelator.Header hdr) {
+        return RpcHeader.newBuilder().setType(hdr.type).setRequestId(hdr.req_id).setCorrId(hdr.corrId).build();
+    }
+
+    protected static RequestCorrelator.Header protobufRpcHeaderToJGroupsReqHeader(RpcHeader hdr) {
+        byte type=(byte)hdr.getType();
+        long request_id=hdr.getRequestId();
+        short corr_id=(short)hdr.getCorrId();
+        return (RequestCorrelator.Header)new RequestCorrelator.Header(type, request_id, corr_id).setProtId(REQ_ID);
     }
 
     protected static String print(org.jgroups.upgrade_server.Message msg) {
@@ -264,6 +294,4 @@ public class UPGRADE extends Protocol {
                              v.getMemberList().stream().map(org.jgroups.upgrade_server.Address::getName)
                                .collect(Collectors.joining(", ")));
     }
-
-
 }
