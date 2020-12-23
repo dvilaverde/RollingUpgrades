@@ -208,8 +208,7 @@ public class UPGRADE extends Protocol {
             return null;
         org.jgroups.upgrade_server.UUID pbuf_uuid=pbuf_addr.hasUuid()? pbuf_addr.getUuid() : null;
         UUID uuid = pbuf_uuid == null? null : new UUID(pbuf_uuid.getMostSig(), pbuf_uuid.getLeastSig());
-        if (uuid != null)
-        {
+        if (uuid != null) {
             UUID.add(uuid, pbuf_addr.getName());
         }
         return uuid;
