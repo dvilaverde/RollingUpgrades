@@ -19,6 +19,7 @@ message Message {
     bytes     payload      = 4;
     RpcHeader rpc_header   = 5; // if the message is an RPC, otherwise this field will be null
     Metadata  meta_data    = 6; // metadata (may be null)
+    VersionHeader version  = 7; // jgroups version
 }
 
 message JoinRequest {
@@ -86,4 +87,8 @@ message RpcHeader {
 
 message Metadata {
     int32 msg_type = 1;
+}
+
+message VersionHeader {
+    int32 encoded_ver = 1;
 }

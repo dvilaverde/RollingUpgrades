@@ -4,9 +4,8 @@ import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
+import org.jgroups.*;
 import org.jgroups.Address;
-import org.jgroups.Event;
-import org.jgroups.Header;
 import org.jgroups.Message;
 import org.jgroups.annotations.MBean;
 import org.jgroups.annotations.ManagedAttribute;
@@ -16,6 +15,8 @@ import org.jgroups.blocks.RequestCorrelator;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.upgrade_server.*;
 import org.jgroups.stack.Protocol;
+import org.jgroups.upgrade_server.View;
+import org.jgroups.upgrade_server.ViewId;
 import org.jgroups.util.UUID;
 
 import java.util.ArrayList;
@@ -56,7 +57,13 @@ public class UPGRADE extends Protocol {
     protected UpgradeServiceGrpc.UpgradeServiceStub     asyncStub;
     protected StreamObserver<Request>                   send_stream; // for sending of messages and join requests
 
+    protected static final short                        VER_ID= 2342;
     protected static final short                        REQ_ID= ClassConfigurator.getProtocolId(RequestCorrelator.class);
+
+
+    static {
+        ClassConfigurator.add(VER_ID, VersionHeader.class);
+    }
 
     @ManagedOperation(description="Enable forwarding and receiving of messages to/from the UpgradeServer")
     public synchronized void activate() {
@@ -234,6 +241,11 @@ public class UPGRADE extends Protocol {
             RpcHeader pbuf_hdr=jgroupsReqHeaderToProtobufRpcHeader((RequestCorrelator.Header)  hdr);
             msg_builder.setRpcHeader(pbuf_hdr);
         }
+        // set the JGroups version in the protocol message
+        org.jgroups.upgrade_server.VersionHeader.Builder verHeader = org.jgroups.upgrade_server.VersionHeader.newBuilder();
+        verHeader.setEncodedVer(Version.version);
+        msg_builder.setVersion(verHeader.build());
+
         return msg_builder.build();
     }
 
@@ -249,6 +261,11 @@ public class UPGRADE extends Protocol {
         if(msg.hasRpcHeader()) {
             RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
             jgroups_mgs.putHeader(REQ_ID, hdr);
+        }
+        if (msg.hasVersion()) {
+            int encodedVer = msg.getVersion().getEncodedVer();
+            Header vh = new VersionHeader(Integer.valueOf(encodedVer).shortValue()).setProtId(REQ_ID);
+            jgroups_mgs.putHeader(VER_ID, vh);
         }
         return jgroups_mgs;
     }
