@@ -6,7 +6,6 @@ import org.jgroups.blocks.RequestOptions;
 import org.jgroups.blocks.ResponseMode;
 import org.jgroups.blocks.RpcDispatcher;
 import org.jgroups.common.demo.NumberPrinter;
-import org.jgroups.protocols.upgrade.VersionHeader;
 import org.jgroups.util.RspList;
 import org.jgroups.util.Util;
 
@@ -32,14 +31,6 @@ public class RpcDemo extends ReceiverAdapter  {
     disp=new RpcDispatcher(channel, np) {
       @Override
       public Object handle(Message req) throws Exception {
-        VersionHeader vh = req.getHeader((short)2342);
-        if (Version.getMajor(vh.version) == 3) {
-          byte[] raw = req.getRawBuffer();
-          byte[] buffer = Arrays.copyOfRange(raw, 4, raw.length);
-          MethodCall call = methodCallFromBuffer(buffer, 0, buffer.length, null);
-          return call.invoke(server_obj);
-        }
-
         return super.handle(req);
       }
     };

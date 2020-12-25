@@ -17,6 +17,7 @@ import org.jgroups.upgrade_server.*;
 import org.jgroups.stack.Protocol;
 import org.jgroups.upgrade_server.View;
 import org.jgroups.upgrade_server.ViewId;
+import org.jgroups.util.Bits;
 import org.jgroups.util.UUID;
 
 import java.util.ArrayList;
@@ -58,13 +59,7 @@ public class UPGRADE extends Protocol {
     protected UpgradeServiceGrpc.UpgradeServiceStub     asyncStub;
     protected StreamObserver<Request>                   send_stream; // for sending of messages and join requests
 
-    protected static final short                        VER_ID= 2342;
     protected static final short                        REQ_ID= ClassConfigurator.getProtocolId(RequestCorrelator.class);
-
-
-    static {
-        ClassConfigurator.add(VER_ID, VersionHeader.class);
-    }
 
     @ManagedOperation(description="Enable forwarding and receiving of messages to/from the UpgradeServer")
     public synchronized void activate() {
@@ -81,7 +76,6 @@ public class UPGRADE extends Protocol {
            active=false;
         }
     }
-
 
     public void start() throws Exception {
         super.start();
@@ -236,16 +230,47 @@ public class UPGRADE extends Protocol {
             msg_builder.setDestination(jgroupsAddressToProtobufAddress(destination));
         if(sender != null)
             msg_builder.setSender(jgroupsAddressToProtobufAddress(sender));
-        if(payload != null)
+        // only write the payload for non-rpc messages
+        if(payload != null && hdr == null)
             msg_builder.setPayload(ByteString.copyFrom(payload));
         if(hdr != null) {
             RpcHeader pbuf_hdr=jgroupsReqHeaderToProtobufRpcHeader((RequestCorrelator.Header)  hdr);
             msg_builder.setRpcHeader(pbuf_hdr);
+
+            if (pbuf_hdr.getType() == RequestCorrelator.Header.REQ) {
+                // Sending down RPC message to cluster, the payload[] should be a MethodCall.
+                // convert it to the protobuf MethodCall and let UPGRADE protocol on receiving
+                // end re-assemble to the correct byte[].
+                // In JGroups 3.6 the payload will have the first 4 bytes before the MethodCall
+                // payload as follows
+                // byte[0]   = 1 if Method call implements the Streamable interface
+                // byte[1]   = 0 if there is no payload, 1 if there is a payload
+                // byte[2-3] = short value defining the magic_number number of the class, value seems
+                //             when sending messages between versions jgroups
+                // byte[4-N]  = MethodCall payload, including method_name, args and types
+                // the 5th byte is part of MethodCall but is the method call mode
+                // byte[5]    = mode (ID = 3, TYPES = 2, METHOD = 1)
+
+                // check if there is a payload, skip the streamable interface byte
+                int hasPayload = Bits.makeInt(payload, 1,1);
+                MethodCall.Builder builder = MethodCall.newBuilder();
+                if (hasPayload == 1) {
+                    // only send the mode and payload (bytes) over gRpc, the receive will fill in the blanks
+                    short mode = (short) Bits.makeInt(payload, 4, 1);
+                    builder.setMode(mode)
+                            .setPayload(ByteString.copyFrom(payload, 5, payload.length - 5));
+                    msg_builder.setMethodCall(builder.build());
+                } else {
+                    msg_builder.setPayload(ByteString.copyFrom(payload));
+                }
+            } else {
+                msg_builder.setPayload(ByteString.copyFrom(payload));
+            }
         }
+
         // set the JGroups version in the protocol message
-        org.jgroups.upgrade_server.VersionHeader.Builder verHeader = org.jgroups.upgrade_server.VersionHeader.newBuilder();
-        verHeader.setEncodedVer(Version.version);
-        msg_builder.setVersion(verHeader.build());
+        Metadata meta = Metadata.newBuilder().setVersion(Version.version).build();
+        msg_builder.setMetaData(meta);
 
         return msg_builder.build();
     }
@@ -262,13 +287,32 @@ public class UPGRADE extends Protocol {
         if(msg.hasRpcHeader()) {
             RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
             jgroups_mgs.putHeader(REQ_ID, hdr);
+
+            // before sending the MethodCall up to the application convert the gRpc version
+            // back to the a byte buffer recognized by the current version of JGroups.
+            if (msg.hasMethodCall())
+                jgroups_mgs.setBuffer(protobufMethodCallToBuffer(msg.getMethodCall()));
         }
-        if (msg.hasVersion()) {
-            int encodedVer = msg.getVersion().getEncodedVer();
-            Header vh = new VersionHeader(Integer.valueOf(encodedVer).shortValue()).setProtId(REQ_ID);
-            jgroups_mgs.putHeader(VER_ID, vh);
-        }
+
         return jgroups_mgs;
+    }
+
+    protected static byte[] protobufMethodCallToBuffer(MethodCall m) {
+        byte[] buffer;
+        if (m.getPayload().isEmpty()) {
+            buffer = new byte[2];
+            buffer[0] = 1; // Streamable type
+            buffer[1] = 0; // no payload, Method call was null from sender's RpcDispatcher.
+        } else {
+            buffer = new byte[m.getPayload().size() + 5];
+            buffer[0] = 1; // Streamable type
+            buffer[1] = 1; // method call is not null
+            short magic_number =ClassConfigurator.getMagicNumber(org.jgroups.blocks.MethodCall.class);
+            Bits.writeShort(magic_number, buffer, 2);
+            buffer[4] = (byte) m.getMode();
+            m.getPayload().copyTo(buffer, 5);
+        }
+        return buffer;
     }
 
     protected static org.jgroups.View protobufViewToJGroupsView(View v) {

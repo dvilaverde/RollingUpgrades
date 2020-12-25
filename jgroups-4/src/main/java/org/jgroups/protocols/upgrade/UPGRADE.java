@@ -17,6 +17,7 @@ import org.jgroups.upgrade_server.*;
 import org.jgroups.stack.Protocol;
 import org.jgroups.upgrade_server.View;
 import org.jgroups.upgrade_server.ViewId;
+import org.jgroups.util.Bits;
 import org.jgroups.util.NameCache;
 import org.jgroups.util.UUID;
 
@@ -59,10 +60,6 @@ public class UPGRADE extends Protocol {
     protected StreamObserver<Request>                   send_stream; // for sending of messages and join requests
 
     protected static final short                        REQ_ID=ClassConfigurator.getProtocolId(RequestCorrelator.class);
-
-    static {
-        ClassConfigurator.add((short)2342, VersionHeader.class);
-    }
 
     @ManagedOperation(description="Enable forwarding and receiving of messages to/from the UpgradeServer")
     public synchronized void activate() {
@@ -235,17 +232,33 @@ public class UPGRADE extends Protocol {
             msg_builder.setDestination(jgroupsAddressToProtobufAddress(destination));
         if(sender != null)
             msg_builder.setSender(jgroupsAddressToProtobufAddress(sender));
-        if(payload != null)
+        if(payload != null && hdr == null)
             msg_builder.setPayload(ByteString.copyFrom(payload));
         if(hdr != null) {
             // set the RPC header when sending RPC message out to another node in the cluster.
             RpcHeader pbuf_hdr=jgroupsReqHeaderToProtobufRpcHeader(hdr);
             msg_builder.setRpcHeader(pbuf_hdr);
+
+            if (pbuf_hdr.getType() == RequestCorrelator.Header.REQ) {
+                // Sending down RPC message to cluster, the payload[] should be a MethodCall.
+                // Convert it to the protobuf MethodCall and let UPGRADE protocol on receiving
+                // end re-assemble to the correct byte[].
+                // In JGroups 4 the payload will have just the mode byte before the MethodCall
+                // payload as follows
+                // byte[0]    = mode (ID = 3, TYPES = 2, METHOD = 1)
+                MethodCall.Builder builder = MethodCall.newBuilder();
+                short mode = (short) Bits.makeInt(payload, 0, 1);
+                builder.setMode(mode)
+                        .setPayload(ByteString.copyFrom(payload, 1, payload.length - 1));
+                msg_builder.setMethodCall(builder.build());
+            } else {
+                msg_builder.setPayload(ByteString.copyFrom(payload));
+            }
         }
+
         // set the JGroups version in the protocol message
-        org.jgroups.upgrade_server.VersionHeader.Builder verHeader = org.jgroups.upgrade_server.VersionHeader.newBuilder();
-        verHeader.setEncodedVer(Version.version);
-        msg_builder.setVersion(verHeader.build());
+        Metadata meta = Metadata.newBuilder().setVersion(Version.version).build();
+        msg_builder.setMetaData(meta);
         return msg_builder.build();
     }
 
@@ -261,14 +274,21 @@ public class UPGRADE extends Protocol {
         if(msg.hasRpcHeader()) {
             RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
             jgroups_mgs.putHeader(REQ_ID, hdr);
-        }
-        if (msg.hasVersion()) {
-            int encodedVer = msg.getVersion().getEncodedVer();
-            Header vh = new VersionHeader(Integer.valueOf(encodedVer).shortValue()).setProtId(REQ_ID);
-            jgroups_mgs.putHeader(vh.getMagicId(), vh);
+
+            // before sending the MethodCall up to the application convert the gRpc version
+            // back to the a byte buffer recognized by the current version of JGroups.
+            if (msg.hasMethodCall())
+                jgroups_mgs.setBuffer(protobufMethodCallToBuffer(msg.getMethodCall()));
         }
 
         return jgroups_mgs;
+    }
+
+    protected static byte[] protobufMethodCallToBuffer(MethodCall m) {
+        byte[] buffer = new byte[m.getPayload().size() + 1];
+        buffer[0] = (byte) m.getMode(); // mode
+        m.getPayload().copyTo(buffer, 1);
+        return buffer;
     }
 
     protected static org.jgroups.View protobufViewToJGroupsView(View v) {
