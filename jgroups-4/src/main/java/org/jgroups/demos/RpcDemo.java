@@ -1,7 +1,6 @@
 package org.jgroups.demos;
 
 import org.jgroups.*;
-import org.jgroups.blocks.MethodCall;
 import org.jgroups.blocks.RequestOptions;
 import org.jgroups.blocks.ResponseMode;
 import org.jgroups.blocks.RpcDispatcher;
@@ -9,11 +8,9 @@ import org.jgroups.common.demo.NumberPrinter;
 import org.jgroups.util.RspList;
 import org.jgroups.util.Util;
 
-import java.util.Arrays;
-
 public class RpcDemo extends ReceiverAdapter  {
   protected JChannel channel;
-  private NumberPrinter np = new NumberPrinter();
+  private final NumberPrinter np = new NumberPrinter();
 
   RpcDispatcher      disp;
   RspList rsp_list;
