@@ -85,6 +85,7 @@ message RpcHeader {
     int32 type       = 1; // request, response, exception
     int64 request_id = 2;
     int32 corr_id    = 3;
+    repeated Address exclusion_list = 4;
 }
 
 message Metadata {

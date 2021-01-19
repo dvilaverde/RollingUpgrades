@@ -3,6 +3,7 @@ package org.jgroups.upgrade_server;
 import io.grpc.stub.StreamObserver;
 
 import java.util.*;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -112,10 +113,10 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         final String  cluster=join_req.getClusterName();
         final Address joiner=join_req.getAddress();
 
-        System.out.printf("Join request for cluster %s @ address: %s, uuid: %s",
+        System.out.printf("Join request for cluster %s @ address: %s, uuid: %s\n",
                 cluster,
                 joiner.getName(),
-                joiner.getUuid().toString()
+                new UUID(joiner.getUuid().getMostSig(), joiner.getUuid().getLeastSig()).toString()
         );
 
         SynchronizedMap m=members.computeIfAbsent(cluster, k -> new SynchronizedMap(new LinkedHashMap()));
@@ -137,10 +138,10 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         Address       leaver=leave_req.getLeaver();
 
 
-        System.out.printf("Leave request for cluster %s @ address: %s, uuid: %s",
+        System.out.printf("Leave request for cluster %s @ address: %s, uuid: %s\n",
                 cluster,
                 leaver.getName(),
-                leaver.getUuid().toString()
+                new UUID(leaver.getUuid().getMostSig(), leaver.getUuid().getLeastSig()).toString()
         );
 
         if(leaver == null)
@@ -189,11 +190,23 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         lock.lock();
         try {
             if(!map.isEmpty()) {
-                //System.out.printf("-- relaying msg to %d members for cluster %s\n", map.size(), msg.getClusterName());
+                System.out.printf("-- relaying msg to %d members for cluster %s\n", map.size(), msg.getClusterName());
                 Response response=Response.newBuilder().setMessage(msg).build();
-                for(StreamObserver<Response> obs: map.values()) {
+
+                // need to honor the exclusion list in the header if present
+                RpcHeader rpcHeader = msg.getRpcHeader();
+
+                Set<Address> exclusions = new HashSet<>();
+                if (rpcHeader.getExclusionListList() != null && !rpcHeader.getExclusionListList().isEmpty()) {
+                    exclusions.addAll(rpcHeader.getExclusionListList());
+                }
+
+                for(Map.Entry<Address, StreamObserver<Response>> node: map.entrySet()) {
+                    StreamObserver<Response> obs = node.getValue();
                     try {
-                        obs.onNext(response);
+                        if (!exclusions.contains(node.getKey())) {
+                            obs.onNext(response);
+                        }
                     }
                     catch(Throwable t) {
                         System.out.printf("exception relaying message (removing observer): %s\n", t);
