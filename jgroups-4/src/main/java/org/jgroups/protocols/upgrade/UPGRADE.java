@@ -275,12 +275,68 @@ public class UPGRADE extends Protocol {
             jgroups_mgs.setDest(protobufAddressToJGroupsAddress(msg.getDestination()));
         if(msg.hasSender())
             jgroups_mgs.setSrc(protobufAddressToJGroupsAddress(msg.getSender()));
+
         ByteString payload=msg.getPayload();
+
         if(!payload.isEmpty())
             jgroups_mgs.setBuffer(payload.toByteArray());
         if(msg.hasRpcHeader()) {
             RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
             jgroups_mgs.putHeader(REQ_ID, hdr);
+
+            if (hdr.type != RequestCorrelator.Header.REQ) {
+                // handle the RPC response which has been potentially serialized differently by
+                // different version of JGroups and may not be binary compatible.
+                //
+                // response types are serialized using Util.objectToBuffer and are using the same
+                // leading byte between JGroups 3.6 and 4.x. One exception is that for type
+                // String and byte[] the JGroups 4 version of the Util will send the length of the
+                // array, where-as JGroups 3.x does not. It seems as JGroups 3.6 is sending
+                // Util.objectToBuffer() and JGroups 4.x reads using Util.objectToStream() which
+                // requires the length of the stream.
+
+                // so first detect version of JGroups sending reply and if it is 3.x need to
+                // add the length of the byte[] to the current byte array
+                // since we know this version of UPGRADE protocol doesn't support JGroups 5.x
+                // assume it's JGroups 3.6
+                boolean compatible = Version.isBinaryCompatible((short) msg.getMetaData().getVersion());
+                if (!compatible) {
+                    if (payload.byteAt(0) == 19){
+                        // handling byte[]
+                        byte[] bytes = payload.toByteArray();
+                        byte[] asStream = new byte[payload.size() + 4]; // add 4 bytes for the length int
+                        asStream[0] = payload.byteAt(0);
+                        bytes = Arrays.copyOfRange(bytes, 1, payload.size());
+                        Bits.writeInt(bytes.length, asStream, 1);
+                        // start at the 5th byte since the first 5 bytes are already
+                        // allocated ( type (1-byte) + len (4-bytes) )
+                        System.arraycopy(bytes, 0, asStream, 5, bytes.length);
+                        jgroups_mgs.setBuffer(asStream);
+                    } else if (payload.byteAt(0) == 18 || payload.byteAt(0) == 21) {
+                        // String type will either be ascii (18) or UTF (21)
+                        // format is:
+                        // byte[0] = 18 (ascii) or 21 (UTF)
+                        // byte[1...] = bytes representing string
+                        // JGroups 4 just needs everything starting from byte[1]
+
+                        // jgroups Util.objectToStream() wants string len for ascii
+                        if (payload.byteAt(0) == 18) {
+                            byte[] bytes = payload.toByteArray();
+                            byte[] asStream = new byte[payload.size() + 4]; // add 4 bytes for the length int
+                            asStream[0] = payload.byteAt(0);
+                            bytes = Arrays.copyOfRange(bytes, 1, payload.size());
+                            Bits.writeInt(bytes.length, asStream, 1);
+                            // start at the 5th byte since the first 5 bytes are already
+                            // allocated ( type (1-byte) + len (4-bytes) )
+                            System.arraycopy(bytes, 0, asStream, 5, bytes.length);
+                        } else {
+                            jgroups_mgs.setBuffer(Arrays.copyOfRange(payload.toByteArray(), 1, payload.size()));
+                        }
+                    } else {
+                        // no change needed, as primitive types are handled the same between both versions.
+                    }
+                }
+            }
 
             // before sending the MethodCall up to the application convert the gRpc version
             // back to the a byte buffer recognized by the current version of JGroups.

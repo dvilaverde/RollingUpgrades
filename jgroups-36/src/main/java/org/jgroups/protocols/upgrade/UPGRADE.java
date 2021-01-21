@@ -1,31 +1,42 @@
 package org.jgroups.protocols.upgrade;
 
-import com.google.protobuf.ByteString;
-import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
-import io.grpc.stub.StreamObserver;
-import org.jgroups.*;
-import org.jgroups.Address;
-import org.jgroups.Message;
-import org.jgroups.annotations.MBean;
-import org.jgroups.annotations.ManagedAttribute;
-import org.jgroups.annotations.ManagedOperation;
-import org.jgroups.annotations.Property;
-import org.jgroups.blocks.RequestCorrelator;
-import org.jgroups.conf.ClassConfigurator;
-import org.jgroups.upgrade_server.*;
-import org.jgroups.stack.Protocol;
-import org.jgroups.upgrade_server.View;
-import org.jgroups.upgrade_server.ViewId;
-import org.jgroups.util.Bits;
-import org.jgroups.util.UUID;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import org.jgroups.Address;
+import org.jgroups.Event;
+import org.jgroups.Header;
+import org.jgroups.Message;
+import org.jgroups.Version;
+import org.jgroups.annotations.MBean;
+import org.jgroups.annotations.ManagedAttribute;
+import org.jgroups.annotations.ManagedOperation;
+import org.jgroups.annotations.Property;
+import org.jgroups.blocks.RequestCorrelator;
+import org.jgroups.conf.ClassConfigurator;
+import org.jgroups.stack.Protocol;
+import org.jgroups.upgrade_server.JoinRequest;
+import org.jgroups.upgrade_server.LeaveRequest;
+import org.jgroups.upgrade_server.Metadata;
+import org.jgroups.upgrade_server.MethodCall;
+import org.jgroups.upgrade_server.Request;
+import org.jgroups.upgrade_server.Response;
+import org.jgroups.upgrade_server.RpcHeader;
+import org.jgroups.upgrade_server.UpgradeServiceGrpc;
+import org.jgroups.upgrade_server.View;
+import org.jgroups.upgrade_server.ViewId;
+import org.jgroups.util.Bits;
+import org.jgroups.util.UUID;
+
+import com.google.protobuf.ByteString;
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.stub.StreamObserver;
 
 /**
  * Relays application messages to the UpgradeServer (when active). Should be the top protocol in a stack.
@@ -90,10 +101,13 @@ public class UPGRADE extends Protocol {
     public void stop() {
         super.stop();
         channel.shutdown();
-        try {
-            channel.awaitTermination(30, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            // Ignore
+        try
+        {
+           channel.awaitTermination(30, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e)
+        {
+           e.printStackTrace();
         }
     }
 
@@ -293,6 +307,59 @@ public class UPGRADE extends Protocol {
         if(msg.hasRpcHeader()) {
             RequestCorrelator.Header hdr=protobufRpcHeaderToJGroupsReqHeader(msg.getRpcHeader());
             jgroups_mgs.putHeader(REQ_ID, hdr);
+
+            if (hdr.type != RequestCorrelator.Header.REQ) {
+                // handle the RPC response which has been potentially serialized differently by
+                // different version of JGroups and may not be binary compatible.
+                //
+                // response types are serialized using Util.objectToBuffer and are using the same
+                // leading byte between JGroups 3.6 and 4.x. One exception is that for type
+                // String and byte[] the JGroups 4 version of the Util will send the length of the
+                // array, where-as JGroups 3.x does not. It seems as JGroups 3.6 is sending
+                // Util.objectToBuffer() and JGroups 4.x reads using Util.objectToStream() which
+                // requires the length of the stream.
+
+                // so first detect version of JGroups sending reply and if it is 4.x need to
+                // remove the length of the byte[] to the current byte array
+                // since we know this version of UPGRADE protocol doesn't support JGroups 5.x
+                // assume it's JGroups 3.6
+                boolean compatible = Version.isBinaryCompatible((short) msg.getMetaData().getVersion());
+                if (!compatible) {
+                    // got a message from 4.x node
+                    byte type = payload.byteAt(0);
+                    if (type == 19){
+                        // handling byte[]
+                        byte[] bytes = payload.toByteArray();
+                        byte[] asBuffer = new byte[payload.size() - 4]; // subtract 4 bytes for the length int
+                        asBuffer[0] = type;
+                        bytes = Arrays.copyOfRange(bytes, 5, payload.size());
+                        // start at the 2nd byte since the first byte is already
+                        // allocated ( type (1-byte) )
+                        System.arraycopy(bytes, 0, asBuffer, 1, bytes.length);
+                        jgroups_mgs.setBuffer(asBuffer);
+                    } else if ( type == 18 || type == 21) {
+                        // String type will either be ascii (18) or UTF (21)
+                        // if type == 18 there will a string length
+                        // byte[1-4] if byte 1 is 18 then there will be a length, otherwise byte 2 is a UTF string
+
+                        if (type == 18) {
+                            // strip off the length as JGroups 3 doesn't need it.
+                            byte[] bytes = payload.toByteArray();
+                            byte[] asBuffer = new byte[payload.size() - 4]; // subtract 4 bytes for the length int
+                            asBuffer[0] = type;
+                            bytes = Arrays.copyOfRange(bytes, 5, payload.size());
+                            // start at the 2nd byte since the first byte is already
+                            // allocated ( type (1-byte) )
+                            System.arraycopy(bytes, 0, asBuffer, 2, bytes.length);
+                            jgroups_mgs.setBuffer(asBuffer);
+                        } else {
+                            jgroups_mgs.setBuffer(Arrays.copyOfRange(payload.toByteArray(), 1, payload.size()));
+                        }
+                    } else {
+                        // no change needed, as primitive types are handled the same between both versions.
+                    }
+                }
+            }
 
             // before sending the MethodCall up to the application convert the gRpc version
             // back to the a byte buffer recognized by the current version of JGroups.
