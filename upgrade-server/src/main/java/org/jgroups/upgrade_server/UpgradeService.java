@@ -4,6 +4,12 @@ import io.grpc.stub.StreamObserver;
 
 import java.util.*;
 import java.util.UUID;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -183,6 +189,59 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
             relayTo(msg, mbrs);
     }
 
+    protected String getMethodName(Message msg)
+    {
+       if (msg.getMethodCall() != null && msg.getMethodCall().getPayload() !=null)
+       {
+          byte[] payload = msg.getMethodCall().getPayload().toByteArray();
+          byte[] methodName = new byte[payload.length];
+
+          for (int j=0; j < methodName.length; j++)
+             methodName[j] = ' ';
+
+          boolean nameStarted = false;
+          for (int i=0,j=0; i < payload.length; i++)
+          {
+             if (Character.isLetter(payload[i]) || payload[i] == '.')
+             {
+                methodName[j++] = payload[i];
+                nameStarted = true;
+             }
+             else if (nameStarted)
+             {
+                break;
+             }
+          }
+
+          return new String(methodName).trim();
+       }
+
+       return "";
+    }
+
+    protected String getMemberNames(Set<Address> members, List<Address> exclusions)
+    {
+       StringBuilder builder = new StringBuilder("[");
+       for (Address addr: members)
+       {
+          if (exclusions == null || ! exclusions.contains(addr))
+          {
+             if (builder.length() > 1)
+                builder.append(", ");
+             builder.append(addr.getName());
+          }
+       }
+       builder.append("]");
+       return builder.toString();
+    }
+
+    protected String getTimestamp()
+    {
+       SimpleDateFormat sdfDate = new SimpleDateFormat("dd-MMM-yyyy HH:mm:ss.SSS");
+       Date now = new Date();
+       String strDate = sdfDate.format(now);
+       return strDate;
+    }
 
     protected void relayToAll(Message msg, SynchronizedMap m) {
         Map<Address,StreamObserver<Response>> map=m.getMap();
@@ -190,16 +249,19 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         lock.lock();
         try {
             if(!map.isEmpty()) {
-                System.out.printf("-- relaying msg to %d members for cluster %s\n", map.size(), msg.getClusterName());
                 Response response=Response.newBuilder().setMessage(msg).build();
 
                 // need to honor the exclusion list in the header if present
                 RpcHeader rpcHeader = msg.getRpcHeader();
+                String memberNames = getMemberNames(map.keySet(), rpcHeader.getExclusionListList());
+                System.out.printf("-- %s relaying all msg %s to members %s for cluster %s\n", getTimestamp(), getMethodName(msg), memberNames, msg.getClusterName());
 
                 Set<Address> exclusions = new HashSet<>();
                 if (rpcHeader.getExclusionListList() != null && !rpcHeader.getExclusionListList().isEmpty()) {
                     exclusions.addAll(rpcHeader.getExclusionListList());
                 }
+
+                System.out.printf("-- relaying msg to %d members for cluster %s\n", map.size() - exclusions.size(), msg.getClusterName());
 
                 for(Map.Entry<Address, StreamObserver<Response>> node: map.entrySet()) {
                     StreamObserver<Response> obs = node.getValue();
@@ -209,7 +271,7 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
                         }
                     }
                     catch(Throwable t) {
-                        System.out.printf("exception relaying message (removing observer): %s\n", t);
+                        System.out.printf("%s exception relaying message (removing observer): %s\n", getTimestamp(), t);
                         remove(obs);
                     }
                 }
@@ -228,17 +290,17 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         try {
             StreamObserver<Response> obs=map.get(dest);
             if(obs == null) {
-                System.err.printf("unicast destination %s not found; dropping message\n", dest.getName());
+                System.err.printf("%s unicast destination %s not found; dropping message\n", getTimestamp(), dest.getName());
                 return;
             }
 
-            //System.out.printf("-- relaying msg to member %s for cluster %s\n", dest.getName(), msg.getClusterName());
+            System.out.printf("-- %s relaying msg %s to member %s for cluster %s\n", getTimestamp(), getMethodName(msg), dest.getName(), msg.getClusterName());
             Response response=Response.newBuilder().setMessage(msg).build();
             try {
                 obs.onNext(response);
             }
             catch(Throwable t) {
-                System.err.printf("exception relaying message to %s (removing observer): %s\n", dest.getName(), t);
+                System.err.printf("%s exception relaying message to %s (removing observer): %s\n", getTimestamp(), dest.getName(), t);
                 remove(obs);
             }
         }
