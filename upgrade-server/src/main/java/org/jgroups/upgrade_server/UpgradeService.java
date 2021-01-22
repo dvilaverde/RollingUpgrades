@@ -123,6 +123,7 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
                     try {
                         obs.onNext(response);
                     } catch (Exception e) {
+                        System.out.printf("%s exception sending command (removing observer): %s\n", getTimestamp(), e);
                         remove(obs);
                     }
                 });

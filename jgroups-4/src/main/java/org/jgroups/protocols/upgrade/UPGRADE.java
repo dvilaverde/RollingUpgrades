@@ -141,7 +141,10 @@ public class UPGRADE extends Protocol {
             if(msg.getSrc() == null)
                 msg.setSrc(local_addr);
             Request req=Request.newBuilder().setMessage(jgroupsMessageToProtobufMessage(cluster, msg)).build();
-            send_stream.onNext(req);
+            synchronized (send_stream)
+            {
+                send_stream.onNext(req);
+            }
         }
         return null;
     }

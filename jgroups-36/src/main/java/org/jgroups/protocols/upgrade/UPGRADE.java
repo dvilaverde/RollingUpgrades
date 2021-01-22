@@ -118,11 +118,13 @@ public class UPGRADE extends Protocol {
                     return down_prot.down(evt);
                 // else send to UpgradeServer
                 if(send_stream != null) {
-                    Message msg=(Message)evt.getArg();
-                    if(msg.getSrc() == null)
+                    Message msg = (Message) evt.getArg();
+                    if (msg.getSrc() == null)
                         msg.setSrc(local_addr);
-                    Request req=Request.newBuilder().setMessage(jgroupsMessageToProtobufMessage(cluster, msg)).build();
-                    send_stream.onNext(req);
+                    Request req = Request.newBuilder().setMessage(jgroupsMessageToProtobufMessage(cluster, msg)).build();
+                    synchronized (send_stream) {
+                        send_stream.onNext(req);
+                    }
                 }
                 return null;
             case Event.SET_LOCAL_ADDRESS:
