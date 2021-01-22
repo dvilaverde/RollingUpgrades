@@ -91,6 +91,47 @@ public class UpgradeService extends UpgradeServiceGrpc.UpgradeServiceImplBase {
         responseObserver.onCompleted();
     }
 
+    public void terminate() {
+        Command c = Command.newBuilder().setTerminate(TerminateCommand.newBuilder().build()).build();
+        final Response response = Response.newBuilder().setCommand(c).build();
+
+        sendCommand(response);
+    }
+
+    public void deactivate() {
+        Command c = Command.newBuilder().setActivate(ActivateCommand.newBuilder().setActive(false).build()).build();
+        final Response response = Response.newBuilder().setCommand(c).build();
+
+        sendCommand(response);
+    }
+
+    public void activate() {
+        Command c = Command.newBuilder().setActivate(ActivateCommand.newBuilder().setActive(true).build()).build();
+        final Response response = Response.newBuilder().setCommand(c).build();
+
+        sendCommand(response);
+    }
+
+    private void sendCommand(Response response) {
+        members.forEach((cluster, nodes) -> {
+            Map<Address, StreamObserver<Response>> nodesMap = nodes.getMap();
+            Lock l = nodes.getLock();
+            l.lock();
+
+            try {
+                nodesMap.values().forEach(obs -> {
+                    try {
+                        obs.onNext(response);
+                    } catch (Exception e) {
+                        remove(obs);
+                    }
+                });
+            } finally {
+                l.unlock();
+            }
+        });
+    }
+
 
     protected void remove(StreamObserver<Response> observer) {
         if(observer == null)

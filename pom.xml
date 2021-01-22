@@ -118,17 +118,17 @@
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty</artifactId>
-            <version>1.31.1</version>
+            <version>1.35.0</version>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
-            <version>1.31.1</version>
+            <version>1.35.0</version>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
-            <version>1.31.1</version>
+            <version>1.35.0</version>
         </dependency>
         <!-- Kludge to find javax.annotation.Generated in the protobuf-generated files (should be temporary) -->
         <dependency>

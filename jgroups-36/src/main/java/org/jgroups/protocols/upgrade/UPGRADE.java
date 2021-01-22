@@ -167,6 +167,20 @@ public class UPGRADE extends Protocol {
                     handleView(rsp.getView());
                     return;
                 }
+                if (rsp.hasCommand()) {
+                    if (rsp.getCommand().hasActivate()) {
+                        log.warn("disabled UPGRADE protocol as requested by upgrade server.");
+                        active = rsp.getCommand().getActivate().getActive();
+                    }
+
+                    if (rsp.getCommand().hasTerminate()) {
+                        log.warn("shutdown UPGRADE protocol as requested by upgrade server.");
+                        active = rsp.getCommand().getActivate().getActive();
+                        disconnect();
+                    }
+                    return;
+                }
+
                 throw new IllegalStateException(String.format("response is illegal: %s", rsp));
             }
 
@@ -350,7 +364,7 @@ public class UPGRADE extends Protocol {
                             bytes = Arrays.copyOfRange(bytes, 5, payload.size());
                             // start at the 2nd byte since the first byte is already
                             // allocated ( type (1-byte) )
-                            System.arraycopy(bytes, 0, asBuffer, 2, bytes.length);
+                            System.arraycopy(bytes, 0, asBuffer, 1, bytes.length);
                             jgroups_mgs.setBuffer(asBuffer);
                         } else {
                             jgroups_mgs.setBuffer(Arrays.copyOfRange(payload.toByteArray(), 1, payload.size()));

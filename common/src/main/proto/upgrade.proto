@@ -68,9 +68,24 @@ message Response {
     oneof one_of {
         Message     message  = 1;
         View        view     = 2;
+        Command     command  = 3;
     }
 }
 
+message Command {
+    oneof one_of {
+        ActivateCommand activate = 1;
+        TerminateCommand terminate = 2;
+    }
+}
+
+message ActivateCommand {
+    bool active = 1;
+}
+
+message TerminateCommand {
+
+}
 
 message Void {
     // contains nothing
