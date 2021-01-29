@@ -229,6 +229,7 @@
 
     <profiles>
         <profile>
+            <id>nexus-staging</id>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
