@@ -3,7 +3,7 @@
 
     <groupId>org.jgroups.rolling-upgrades</groupId>
     <artifactId>parent</artifactId>
-    <version>1.1.1${changelist}</version>
+    <version>${revision}${sha1}${changelist}</version>
     <packaging>pom</packaging>
     <name>RollingUpgrades</name>
     <url>https://github.com/jgroups-extras/RollingUpgrades</url>
@@ -17,6 +17,7 @@
     </modules>
 
     <properties>
+        <revision>1.1.1</revision>
         <changelist>-SNAPSHOT</changelist>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -190,6 +191,18 @@
                         <goals>
                             <goal>compile</goal>
                             <goal>compile-custom</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.hbakkum.maven.plugins</groupId>
+                <artifactId>resolve-parent-version-maven-plugin</artifactId>
+                <version>0.8</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>resolve-parent-version</goal>
                         </goals>
                     </execution>
                 </executions>
