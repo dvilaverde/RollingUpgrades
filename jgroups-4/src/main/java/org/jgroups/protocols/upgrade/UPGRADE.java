@@ -169,6 +169,10 @@ public class UPGRADE extends Protocol {
                     if (rsp.getCommand().hasTerminate()) {
                         log.warn("shutdown UPGRADE protocol as requested by upgrade server.");
                         active = false;
+
+                        // TODO: this isn't right, when terminate is received because of upgrade-server
+                        //       shutting down, then disconnect won't be able to send a message back
+                        //       to it to leave the cluster.
                         disconnect();
                     }
                     return;
