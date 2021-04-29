@@ -162,13 +162,13 @@ public class UPGRADE extends Protocol {
                 }
                 if (rsp.hasCommand()) {
                     if (rsp.getCommand().hasActivate()) {
-                        log.warn("disabled UPGRADE protocol as requested by upgrade server.");
                         active = rsp.getCommand().getActivate().getActive();
+                        log.warn(String.format("activation command (%s) UPGRADE protocol as requested by upgrade server.", active));
                     }
 
                     if (rsp.getCommand().hasTerminate()) {
                         log.warn("shutdown UPGRADE protocol as requested by upgrade server.");
-                        active = rsp.getCommand().getActivate().getActive();
+                        active = false;
                         disconnect();
                     }
                     return;

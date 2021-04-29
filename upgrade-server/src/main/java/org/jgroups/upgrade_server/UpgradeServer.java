@@ -125,6 +125,12 @@ public class UpgradeServer {
                                 String active = (String) p.get("active");
                                 if (active != null) {
                                     System.out.printf("Sending command activate %s\n", Boolean.valueOf(active));
+
+                                    if (Boolean.valueOf(active)) {
+                                        serviceRef.activate();
+                                    } else {
+                                        serviceRef.deactivate();
+                                    }
                                 }
                             }
                         }
