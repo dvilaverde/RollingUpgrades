@@ -57,6 +57,9 @@ public class UPGRADE extends Protocol {
     @Property(description="The port on which the UpgradeServer is listening")
     protected int                                       server_port=50051;
 
+    @Property(description = "Whether or not to connect to upgrade server on startup. The protocol will be active based on active property. This allows for connected but not active",writable = false)
+    protected volatile boolean connectOnStart;
+
     @ManagedAttribute(description="The local address")
     protected Address                                   local_addr;
 
@@ -136,7 +139,7 @@ public class UPGRADE extends Protocol {
             case Event.CONNECT_WITH_STATE_TRANSFER_USE_FLUSH:
                 cluster=evt.arg();
                 Object ret=down_prot.down(evt);
-                if(active)
+                if(active || connectOnStart)
                     connect(cluster);
                 return ret;
             case Event.DISCONNECT:
